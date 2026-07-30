@@ -1,13 +1,14 @@
 # Zabbix AI Advisor
 
-Zabbix'ten gelen alarm/problem bilgisini alıp Google Gemini API'ye gönderen,
-aldığı öneriyi basit bir web dashboard'da gösteren küçük bir FastAPI servisi.
+A small FastAPI service that receives Zabbix alert/problem data, sends it
+to Google's Gemini API for a short root-cause diagnosis, and displays it
+on a simple web dashboard — with an optional human-approved remediation
+action.
 
-Gemini API, **kredi kartı gerektirmeyen, süresiz bir ücretsiz katman** sunuyor
-(Flash modelleri, günde ~1500 istek limiti) — bu proje ölçeğinde tamamen
-yeterli ve bedava.
+Gemini offers a **permanent, no-credit-card free tier** (Flash models,
+~1,500 requests/day), which is more than enough for this scale of use.
 
-## Mimari
+## Architecture
 
 ```
 Zabbix (trigger action) --webhook--> FastAPI /webhook --> Gemini API
@@ -19,32 +20,63 @@ Zabbix (trigger action) --webhook--> FastAPI /webhook --> Gemini API
                                       Dashboard (GET /)
 ```
 
-## 1) Klasörü sunucuna taşı
+## 0) Before pushing to GitHub (critical security step)
 
-Bu klasörün tamamını `~/zabbix/zabbix-ai-advisor/` altına kopyala
-(yani `~/zabbix/docker-compose.yml` ile aynı seviyede bir alt klasör olsun).
+Never commit `GEMINI_API_KEY` or `WEBHOOK_SECRET` as plain text. Use a
+`.env` file instead:
+
+```bash
+cd ~/zabbix
+cp zabbix-ai-advisor/.env.example .env
+nano .env   # fill in GEMINI_API_KEY and WEBHOOK_SECRET with real values
+```
+
+Make sure `docker-compose.yml`'s `ai-advisor` service uses the
+`${GEMINI_API_KEY}`-style variable references shown in
+`docker-compose.snippet.yml` (not hardcoded values). Docker Compose
+automatically reads a `.env` file in the same directory.
+
+The provided `.gitignore` already excludes `.env` — move it to your repo
+root (`~/zabbix/.gitignore`) if it isn't already there.
+
+### Pushing to GitHub
+
+```bash
+cd ~/zabbix
+git init
+git add .
+git status   # confirm .env is NOT listed!
+git commit -m "Zabbix + Docker monitoring + AI Advisor"
+gh repo create your-repo-name --public --source=. --remote=origin --push
+```
+
+**Final check:** open `docker-compose.yml` on GitHub and confirm
+`GEMINI_API_KEY` / `WEBHOOK_SECRET` show placeholders like
+`${GEMINI_API_KEY}`, never a real value.
+
+## 1) Copy the folder to your server
+
+Copy this whole folder to `~/zabbix/zabbix-ai-advisor/` (i.e. as a
+subdirectory next to `~/zabbix/docker-compose.yml`).
 
 ```bash
 ls ~/zabbix
 # docker-compose.yml  agent2-nginx.conf  zabbix-ai-advisor/
 ```
 
-## 2) docker-compose.yml'e servisi ekle
+## 2) Add the service to docker-compose.yml
 
-`docker-compose.snippet.yml` içindeki bloğu, `~/zabbix/docker-compose.yml`
-dosyandaki `services:` altına ekle (nano ile aç, mysql/zabbix-server'ın
-yanına yapıştır). `volumes:` bölümüne de `ai-advisor-data:` satırını ekle.
+Merge the block from `docker-compose.snippet.yml` into the `services:`
+section of `~/zabbix/docker-compose.yml`, and add the `ai-advisor-data:`
+line under `volumes:`.
 
-`GEMINI_API_KEY` alanına kendi Gemini API key'ini yaz. Almak için:
+## 3) Get a free Gemini API key
 
-1. **aistudio.google.com/apikey** adresine git
-2. Google hesabınla giriş yap (kredi kartı istemez)
-3. **"Create API key"** butonuna bas, key'i kopyala (`AIzaSy...` ile başlar)
+1. Go to **aistudio.google.com/apikey**
+2. Sign in with a Google account (no credit card required)
+3. Click **"Create API key"**, copy it into your `.env` file
 
-`WEBHOOK_SECRET` alanına kendi seçtiğin bir parola yaz — bunu birazdan
-Zabbix tarafında da aynı şekilde kullanacağız.
-
-## 3) Build & çalıştır
+## 4) Build & run
 
 ```bash
 cd ~/zabbix
@@ -52,81 +84,104 @@ docker compose up -d --build ai-advisor
 docker logs zabbix-ai-advisor
 ```
 
-`docker logs` çıktısında hata olmamalı. Test et:
+Test:
 
 ```bash
 curl http://localhost:8001/health
 # {"status":"ok","ai_enabled":true}
 ```
 
-Dashboard'u tarayıcıda aç: `http://192.168.43.128:8001`
+Open the dashboard: `http://<your-server-ip>:8001`
 
-## 4) Zabbix'te Webhook Media Type oluştur
+## 5) Create a Zabbix Webhook media type
 
 **Alerts → Media types → Create media type**
 
 - **Name:** `AI Advisor`
 - **Type:** `Webhook`
-- **Parameters** sekmesinde şu key/value çiftlerini ekle:
+- **Parameters:**
 
 | Name | Value |
 |---|---|
 | URL | `http://ai-advisor:8001/webhook` |
-| Secret | `docker-compose'daki WEBHOOK_SECRET ile aynı değer` |
+| Secret | *(same value as `WEBHOOK_SECRET` in your `.env`)* |
 | Host | `{HOST.NAME}` |
 | Severity | `{EVENT.SEVERITY}` |
 | EventName | `{EVENT.NAME}` |
 | Message | `{ALERT.MESSAGE}` |
 | Status | `{EVENT.STATUS}` |
 
-> `URL` alanında `ai-advisor` yazdık çünkü aynı docker-compose network'ündeki
-> servis adıyla birbirlerine ulaşabilirler (zabbix-server konteyneri bu
-> servise container ismiyle erişir). Eğer zabbix-server `network_mode: host`
-> kullanmıyorsa bu şekilde çalışır; agent'ın host modunda olması bunu etkilemez,
-> çünkü bu istek zabbix-server konteynerinden çıkıyor.
+- Paste the contents of `zabbix_webhook.js` into the **Script** box.
+- Enable and save.
 
-- **Script** kutusuna `zabbix_webhook.js` dosyasının içeriğini yapıştır.
-- **Enabled** olarak kaydet.
+> We use `ai-advisor` as the hostname because both containers share the
+> same Docker Compose network — Compose's built-in DNS resolves service
+> names to container IPs automatically.
 
-## 5) Kullanıcına bu medyayı ekle
+## 6) Add the media type to your user
 
-**Users → Users → [kendi kullanıcın] → Media → Add**
-
+**Users → Users → [your user] → Media → Add**
 - **Type:** `AI Advisor`
-- **Send to:** herhangi bir değer yazabilirsin (webhook için genelde önemsiz, "-" gibi bir şey)
 - **Status:** Enabled
 
-## 6) Trigger action'a bu medyayı da ekle
+## 7) Add it to a trigger action
 
-**Alerts → Actions → Trigger actions → "Report problems to Zabbix administrators"**
-(veya kendi action'ın) → **Operations** → mevcut operasyonu düzenle →
-**Send only to** alanına `AI Advisor`'ı da ekle (email'in yanında, ikisi
-birlikte tetiklenebilir).
+**Alerts → Actions → Trigger actions → [your action]** → **Operations** →
+edit the operation → make sure **"Send to media type"** is set to
+`All available` (or explicitly include `AI Advisor`).
 
-## 7) Test
+> **Important:** the operation must have a **Custom message** defined
+> (Subject + Message fields filled in). Without it, `{ALERT.MESSAGE}`
+> resolves to empty and the webhook script fails with
+> `"No message defined for media type."`
+
+## 8) Approving remediation actions
+
+The AI appends a hidden, structured action suggestion at the end of its
+analysis (not shown to the user). If it identifies a concrete,
+automatable action, the dashboard shows an **"Apply this action"** button.
+
+**Security design — important:**
+- The AI's free-text output is **never** executed directly as a command.
+- Only three fixed, whitelisted action types are allowed:
+  `restart_container`, `stop_container`, `start_container`.
+- The container name is validated against the real Docker API
+  (`docker_client.containers.get(...)`) before anything runs — a
+  made-up/nonexistent name simply fails, nothing executes.
+- Actions only run when **you** click the button (human-in-the-loop) —
+  the AI never acts on its own.
+
+This requires mounting `docker.sock` into the `ai-advisor` container
+(already set up in `docker-compose.snippet.yml`, without `:ro` since
+restart/stop/start need write access).
+
+⚠️ **Note:** granting write access to `docker.sock` means this container
+can control **any** Docker container on the host, not just monitored
+ones. A reasonable trade-off for a personal/lab setup, but worth
+isolating further in production (dedicated user, a scoped proxy, etc.).
+
+## 9) Test
 
 ```bash
 docker stop weather-app-web-1
 ```
 
-Birkaç dakika bekle, sonra `http://192.168.43.128:8001` adresine git —
-yeni bir kart, host adı, mesaj ve altında Claude'un ürettiği teşhis/öneri
-görünmeli.
+Wait a couple of minutes, then check `http://<your-server-ip>:8001` — a
+new card should appear with the real Zabbix problem and Gemini's
+diagnosis, plus an "Apply this action" button if applicable.
 
 ```bash
 docker start weather-app-web-1
 ```
 
-## Notlar
+## Notes
 
-- `GEMINI_MODEL` olarak `gemini-2.5-flash` kullanılıyor — ücretsiz katmanda
-  günde ~1500 istek hakkın var, bu proje için fazlasıyla yeterli.
-- Ücretsiz katmanda gönderdiğin prompt/cevaplar Google tarafından model
-  geliştirme amacıyla kullanılabilir (Google'ın belgelediği bir durum).
-  Hassas/gizli veri içeren alarm mesajları gönderiyorsan bunu bil.
-- Dashboard 30 saniyede bir otomatik yenilenir.
-- Veriler `ai-advisor-data` adlı Docker volume'ünde (`/data/alerts.db`)
-  kalıcı olarak saklanır.
-- Şu an "basic" kapsamda: sadece gelen alarm metnini AI'ya gönderiyor.
-  İleride istersen ilgili metrik geçmişini (CPU/memory grafiği vb.)
-  de prompt'a ekleyip daha isabetli öneriler alacak şekilde genişletebiliriz.
+- `GEMINI_MODEL` defaults to `gemini-3.5-flash`. Google renames/retires
+  Flash models fairly often — if you get a 404, check the error message
+  (it usually suggests the new model name) and update the `.env` value.
+- Free-tier prompts/responses may be used by Google to improve their
+  models. Keep that in mind if your alert messages ever contain sensitive
+  data.
+- The dashboard auto-refreshes every 30 seconds.
+- Data is persisted in the `ai-advisor-data` Docker volume
+  (`/data/alerts.db`).
