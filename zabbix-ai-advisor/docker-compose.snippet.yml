@@ -7,12 +7,13 @@
     container_name: zabbix-ai-advisor
     restart: unless-stopped
     environment:
-      GEMINI_API_KEY: "AIzaSy-xxxxxxxx"   # aistudio.google.com/apikey adresinden al, kart gerekmez
-      GEMINI_MODEL: "gemini-2.5-flash"
-      WEBHOOK_SECRET: "degistir-bu-sifreyi"   # zabbix_webhook.js'deki Secret ile aynı olmalı
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET}
       DB_PATH: "/data/alerts.db"
     volumes:
       - ai-advisor-data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8001:8001"
 

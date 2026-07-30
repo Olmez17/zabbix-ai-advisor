@@ -59,6 +59,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./agent2-nginx.conf:/etc/zabbix/zabbix_agent2.d/nginx.conf:ro
      
+
+
   ai-advisor:
     build: ./zabbix-ai-advisor
     container_name: zabbix-ai-advisor
@@ -77,3 +79,4 @@ services:
 volumes:
   mysql-data:
   ai-advisor-data:
+ 

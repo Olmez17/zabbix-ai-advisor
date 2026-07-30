@@ -20,6 +20,14 @@
   .msg { color:#cbd5e1; font-size:13px; margin-top:6px; white-space:pre-wrap; }
   .ai { margin-top:12px; background:#0f2027; border-radius:8px; padding:12px 14px; font-size:13px; line-height:1.7; border:1px solid #334155; }
   .ai strong { color:#60a5fa; }
+  .action-box { margin-top:12px; padding:10px 14px; background:#1a2332; border-radius:8px; border:1px solid #334155; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+  .action-desc { font-size:12px; color:#94a3b8; }
+  .action-desc b { color:#e2e8f0; }
+  .btn-approve { background:#16a34a; color:white; border:none; padding:7px 16px; border-radius:6px; font-size:13px; cursor:pointer; font-weight:600; }
+  .btn-approve:hover { background:#15803d; }
+  .action-status { font-size:12px; padding:4px 10px; border-radius:999px; }
+  .action-status.applied { background:#166534; color:#86efac; }
+  .action-status.failed, .action-status.rejected { background:#7f1d1d; color:#fca5a5; }
   .ai-label { color:#60a5fa; font-weight:600; font-size:12px; margin-bottom:6px; display:block; }
   .error { color:#f87171; font-size:12px; }
   .empty { color:#64748b; text-align:center; padding:60px 0; }
@@ -48,6 +56,24 @@
     </div>
     {% elif a['ai_error'] %}
     <div class="error">AI önerisi alınamadı: {{ a['ai_error'] }}</div>
+    {% endif %}
+
+    {% if a['suggested_action'] %}
+      {% set action = a['suggested_action'] | fromjson %}
+      <div class="action-box">
+        <div class="action-desc">
+          Önerilen aksiyon: <b>{{ action.type }}</b> → <b>{{ action.container }}</b>
+        </div>
+        {% if a['action_status'] == 'none' or not a['action_status'] %}
+        <form method="post" action="/alerts/{{ a['id'] }}/approve" style="margin:0;">
+          <button type="submit" class="btn-approve" onclick="return confirm('{{ action.type }} → {{ action.container }} uygulansın mı?')">Bu aksiyonu uygula</button>
+        </form>
+        {% else %}
+        <div class="action-status {{ a['action_status'] }}">
+          {{ a['action_result'] }}
+        </div>
+        {% endif %}
+      </div>
     {% endif %}
   </div>
   {% endfor %}
