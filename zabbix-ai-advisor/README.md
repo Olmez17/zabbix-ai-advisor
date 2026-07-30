@@ -1,19 +1,20 @@
 # Zabbix AI Advisor
 
 A small FastAPI service that receives Zabbix alert/problem data, sends it
-to a **local, open-source LLM running via Ollama** for a short root-cause
-diagnosis, and displays it on a simple web dashboard — with an optional
-human-approved remediation action.
+to Google's Gemini API for a short root-cause diagnosis, and displays it
+on a simple web dashboard — with an optional human-approved remediation
+action.
 
-Running the model locally (Qwen 2.5 3B by default) means **no API key,
-no external account, no cost, and no dependency on a third-party
-provider's uptime or pricing changes** — everything runs on your own
-Docker host.
+Gemini offers a **permanent, no-credit-card free tier**, which is more
+than enough for this scale of use. See the "Choosing a model" note below
+— not all Gemini model names stay available forever, so this project
+uses a `-latest` alias to stay resilient to Google's frequent model
+retirements.
 
 ## Architecture
 
 ```
-Zabbix (trigger action) --webhook--> FastAPI /webhook --> Ollama (local LLM)
+Zabbix (trigger action) --webhook--> FastAPI /webhook --> Gemini API
                                               |
                                               v
                                          SQLite (alerts.db)
@@ -24,17 +25,18 @@ Zabbix (trigger action) --webhook--> FastAPI /webhook --> Ollama (local LLM)
 
 ## 0) Before pushing to GitHub (critical security step)
 
-Never commit `WEBHOOK_SECRET` as plain text. Use a `.env` file instead:
+Never commit `GEMINI_API_KEY` or `WEBHOOK_SECRET` as plain text. Use a
+`.env` file instead:
 
 ```bash
 cd ~/zabbix
 cp zabbix-ai-advisor/.env.example .env
-nano .env   # fill in WEBHOOK_SECRET with a real value
+nano .env   # fill in GEMINI_API_KEY and WEBHOOK_SECRET with real values
 ```
 
 Make sure `docker-compose.yml`'s `ai-advisor` service uses the
-`${WEBHOOK_SECRET}`-style variable reference shown in
-`docker-compose.snippet.yml` (not a hardcoded value). Docker Compose
+`${GEMINI_API_KEY}`-style variable references shown in
+`docker-compose.snippet.yml` (not hardcoded values). Docker Compose
 automatically reads a `.env` file in the same directory.
 
 The provided `.gitignore` already excludes `.env` — move it to your repo
@@ -52,8 +54,8 @@ gh repo create your-repo-name --public --source=. --remote=origin --push
 ```
 
 **Final check:** open `docker-compose.yml` on GitHub and confirm
-`WEBHOOK_SECRET` shows a placeholder like `${WEBHOOK_SECRET}`, never a
-real value.
+`GEMINI_API_KEY` / `WEBHOOK_SECRET` show placeholders like
+`${GEMINI_API_KEY}`, never a real value.
 
 ## 1) Copy the folder to your server
 
@@ -71,16 +73,43 @@ Merge the block from `docker-compose.snippet.yml` into the `services:`
 section of `~/zabbix/docker-compose.yml`, and add the `ai-advisor-data:`
 line under `volumes:`.
 
-## 3) Pull the model into Ollama
+## 3) Get a free Gemini API key
+
+1. Go to **aistudio.google.com/apikey**
+2. Sign in with a Google account (no credit card required)
+3. Click **"Create API key"**, copy it into your `.env` file
+
+### Choosing a model
+
+Google renames and retires specific Gemini model versions fairly often
+(we personally hit 404 errors on `gemini-2.5-flash`, `gemini-3.5-flash`,
+and `gemini-2.5-flash-lite` while building this — all "no longer
+available to new users" despite being recent). To avoid re-debugging
+this every few months, this project defaults to `gemini-flash-lite-latest`,
+an alias Google keeps pointed at whatever their current lightweight Flash
+model is.
+
+If you ever see a `404 NOT_FOUND ... no longer available` error, list the
+models your key actually has access to and pick a working one:
 
 ```bash
-cd ~/zabbix
-docker compose up -d ollama
-docker exec ollama ollama pull qwen2.5:3b
+docker exec -it zabbix-ai-advisor python3 -c "
+import os
+from google import genai
+client = genai.Client(api_key=os.getenv('GEMINI_API_KEY'))
+for m in client.models.list():
+    if 'generateContent' in (m.supported_actions or []):
+        print(m.name)
+"
 ```
 
-This downloads the model (a few GB, takes a couple of minutes) into the
-`ollama-data` volume, so you only need to do this once.
+Prefer `-latest` aliases (`gemini-flash-latest`, `gemini-flash-lite-latest`)
+over pinned version numbers — they're more resilient to Google's model
+lifecycle changes. Also watch out for free-tier daily quotas: newer
+preview-class models (e.g. `gemini-3.5-flash`) can have very low daily
+limits (as low as 20 requests/day), while established models like
+`gemini-2.0-flash` or the `-latest` aliases typically get much higher
+quotas (~1,000+ requests/day).
 
 ## 4) Build & run
 
@@ -94,7 +123,7 @@ Test:
 
 ```bash
 curl http://localhost:8001/health
-# {"status":"ok","ollama_reachable":true,"model":"qwen2.5:3b"}
+# {"status":"ok","ai_enabled":true}
 ```
 
 Open the dashboard: `http://<your-server-ip>:8001`
@@ -182,16 +211,11 @@ docker start weather-app-web-1
 
 ## Notes
 
-- `OLLAMA_MODEL` defaults to `qwen2.5:3b` — a small model chosen for
-  reasonable CPU-only inference speed and good multilingual (Turkish)
-  quality. If responses feel slow or too basic, you can pull a larger
-  model (`docker exec ollama ollama pull qwen2.5:7b`) and update
-  `OLLAMA_MODEL` in `.env` — expect slower responses without a GPU.
-- Everything runs locally: no API key, no external account, no per-request
-  cost, and no dependency on a third-party provider's availability or
-  pricing changes.
-- First request after a fresh container start may take longer while the
-  model loads into memory.
+- `GEMINI_MODEL` defaults to `gemini-flash-lite-latest`. See "Choosing a
+  model" above if you hit a 404 or 429 error.
+- Free-tier prompts/responses may be used by Google to improve their
+  models. Keep that in mind if your alert messages ever contain sensitive
+  data.
 - The dashboard auto-refreshes every 30 seconds.
 - Data is persisted in the `ai-advisor-data` Docker volume
-  (`/data/alerts.db`); the model itself is persisted in `ollama-data`.
+  (`/data/alerts.db`).
