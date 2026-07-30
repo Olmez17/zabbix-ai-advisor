@@ -1,0 +1,20 @@
+# Bu bloğu mevcut ~/zabbix/docker-compose.yml dosyandaki
+# "services:" bölümünün altına ekle (aynı indent seviyesinde,
+# mysql/zabbix-server/zabbix-web/zabbix-agent ile yan yana).
+
+  ai-advisor:
+    build: ./zabbix-ai-advisor
+    container_name: zabbix-ai-advisor
+    restart: unless-stopped
+    environment:
+      GEMINI_API_KEY: "AIzaSy-xxxxxxxx"   # aistudio.google.com/apikey adresinden al, kart gerekmez
+      GEMINI_MODEL: "gemini-2.5-flash"
+      WEBHOOK_SECRET: "degistir-bu-sifreyi"   # zabbix_webhook.js'deki Secret ile aynı olmalı
+      DB_PATH: "/data/alerts.db"
+    volumes:
+      - ai-advisor-data:/data
+    ports:
+      - "8001:8001"
+
+# Ve dosyanın en altındaki "volumes:" bölümüne şunu ekle:
+#   ai-advisor-data:

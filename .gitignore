@@ -1,0 +1,22 @@
+# Secrets - ASLA commit etme
+.env
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Docker/veri
+*.db
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editör
+.vscode/
+.idea/
+*.swp

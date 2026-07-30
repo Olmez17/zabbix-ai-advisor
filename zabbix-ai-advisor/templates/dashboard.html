@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<title>Zabbix AI Advisor</title>
+<meta http-equiv="refresh" content="30">
+<style>
+  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; background:#0f172a; color:#e2e8f0; margin:0; padding:24px; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  .sub { color:#94a3b8; font-size:13px; margin-bottom:20px; }
+  .card { background:#1e293b; border-radius:10px; padding:16px 20px; margin-bottom:14px; border-left:4px solid #475569; }
+  .card.sev-High, .card.sev-Disaster { border-left-color:#ef4444; }
+  .card.sev-Average { border-left-color:#f59e0b; }
+  .card.sev-Warning { border-left-color:#eab308; }
+  .card.sev-Information { border-left-color:#38bdf8; }
+  .row { display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px; }
+  .host { font-weight:600; font-size:15px; }
+  .sev { font-size:11px; text-transform:uppercase; padding:2px 8px; border-radius:999px; background:#334155; }
+  .time { color:#94a3b8; font-size:12px; }
+  .msg { color:#cbd5e1; font-size:13px; margin-top:6px; white-space:pre-wrap; }
+  .ai { margin-top:12px; background:#0f2027; border-radius:8px; padding:12px 14px; font-size:13px; line-height:1.7; border:1px solid #334155; }
+  .ai strong { color:#60a5fa; }
+  .ai-label { color:#60a5fa; font-weight:600; font-size:12px; margin-bottom:6px; display:block; }
+  .error { color:#f87171; font-size:12px; }
+  .empty { color:#64748b; text-align:center; padding:60px 0; }
+</style>
+</head>
+<body>
+  <h1>Zabbix AI Advisor</h1>
+  <div class="sub">Son 100 uyarı · 30 saniyede bir otomatik yenilenir</div>
+
+  {% if not alerts %}
+    <div class="empty">Henüz uyarı yok.</div>
+  {% endif %}
+
+  {% for a in alerts %}
+  <div class="card sev-{{ a['severity'] }}">
+    <div class="row">
+      <span class="host">{{ a['host'] }} — {{ a['event_name'] }}</span>
+      <span class="sev">{{ a['severity'] }} · {{ a['status'] }}</span>
+    </div>
+    <div class="time">{{ a['received_at'] }}</div>
+    <div class="msg">{{ a['message'] }}</div>
+
+    {% if a['ai_suggestion'] %}
+    <div class="ai">
+      <span class="ai-label">🤖 AI önerisi</span>{{ a['ai_suggestion'] | ai_render | safe }}
+    </div>
+    {% elif a['ai_error'] %}
+    <div class="error">AI önerisi alınamadı: {{ a['ai_error'] }}</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</body>
+</html>
